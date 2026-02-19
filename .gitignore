@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Playwright
+browser_data/
+test-results/
+playwright-report/
+blob-report/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+*.log
