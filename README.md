@@ -1,159 +1,80 @@
-# LinkedIn Automation with Playwright - Setup Guide
+# LinkedIn Easy Apply Agent 🤖
 
-This project sets up Playwright with a **persistent browser profile** so your LinkedIn login is saved across runs.
+An intelligent, autonomous agent that applies to LinkedIn jobs for you using **LangGraph**, **Playwright**, and **LLMs** (OpenAI or Local).
 
-## ✅ Setup Complete!
+## 🌟 Features
 
-Your virtual environment and Playwright are already installed and ready to use.
+- **Agentic Workflow**: Uses a state machine (LangGraph) to Observe → Think → Act → Verify.
+- **Smart Form Filling**: Uses an LLM to understand questions and fill fields based on your profile.
+- **Resilient**: Handles retries, validation errors, and unexpected popups.
+- **Local Model Support**: Run completely free/private using Ollama (Qwen 2.5 Coder).
+- **Safe**: Human-like navigation (Python-driven) to avoid bans.
 
----
+## 🚀 Quick Start
 
-## 🚀 Quick Start Guide
-
-### Step 1: Activate Virtual Environment
-
-Every time you want to run your scripts, activate the virtual environment first:
+### 1. Setup
 
 ```bash
+# Clone rep
+git clone https://github.com/your-username/linkedin-easy-apply-agent.git
+cd linkedin-easy-apply-agent
+
+# Install dependencies
+python3 -m venv venv
 source venv/bin/activate
-```
-
-### Step 2: First-Time LinkedIn Login Setup
-
-Run the setup script to log into LinkedIn (only needed once):
-
-```bash
-python setup_linkedin_browser.py
-```
-
-**What happens:**
-- A browser window opens
-- Navigate to LinkedIn and **log in manually**
-- Your login credentials will be saved in the `browser_data/` folder
-- Press `Ctrl+C` in the terminal when you're done
-
-### Step 3: Run Your Automation
-
-Now you can run automation scripts without logging in again:
-
-```bash
-python example_automation.py
-```
-
-The browser will open with LinkedIn already logged in! ✅
-
----
-
-## 📁 Project Structure
-
-```
-elarning_Autoamtion/
-├── venv/                          # Virtual environment (don't commit)
-├── browser_data/                  # Persistent browser profile (don't commit)
-├── setup_linkedin_browser.py      # First-time login setup
-├── example_automation.py          # Example automation script
-├── requirements.txt               # Python dependencies
-├── .gitignore                     # Ignore sensitive files
-└── README.md                      # This file
-```
-
----
-
-## 📝 Writing Your Own Automation Scripts
-
-### Template for Your Scripts:
-
-```python
-from playwright.sync_api import sync_playwright
-import os
-
-def my_automation():
-    user_data_dir = os.path.join(os.path.dirname(__file__), "browser_data")
-    
-    with sync_playwright() as p:
-        # Launch with persistent context (LinkedIn already logged in)
-        context = p.chromium.launch_persistent_context(
-            user_data_dir,
-            headless=False,  # Set True for headless mode
-        )
-        
-        page = context.new_page()
-        page.goto("https://www.linkedin.com/jobs/")
-        
-        # Your automation code here
-        # ...
-        
-        context.close()
-
-if __name__ == "__main__":
-    my_automation()
-```
-
----
-
-## 🔧 Common Commands
-
-| Command | Description |
-|---------|-------------|
-| `source venv/bin/activate` | Activate virtual environment |
-| `deactivate` | Deactivate virtual environment |
-| `pip install -r requirements.txt` | Reinstall dependencies |
-| `playwright install chromium` | Reinstall browser |
-
----
-
-## ⚠️ Important Notes
-
-1. **Browser Data Security**: The `browser_data/` folder contains your LinkedIn session. **Never commit this to Git** (it's already in `.gitignore`)
-
-2. **Session Expiry**: LinkedIn sessions may expire after some time. Just run `setup_linkedin_browser.py` again to re-login.
-
-3. **Headless Mode**: To run without showing the browser window, change `headless=False` to `headless=True` in your scripts.
-
-4. **Virtual Environment**: Always activate the virtual environment before running scripts:
-   ```bash
-   source venv/bin/activate
-   ```
-
----
-
-## 🎯 Next Steps
-
-1. ✅ Virtual environment is set up
-2. ✅ Playwright is installed
-3. ⏭️  Run `python setup_linkedin_browser.py` to log into LinkedIn
-4. ⏭️  Start writing your automation code!
-
----
-
-## 🐛 Troubleshooting
-
-**Browser doesn't open:**
-```bash
-# Reinstall Playwright browsers
-source venv/bin/activate
+pip install -r requirements.txt
 playwright install chromium
 ```
 
-**"Module not found" error:**
-```bash
-# Make sure virtual environment is activated
-source venv/bin/activate
-```
+### 2. Configure
 
-**LinkedIn session expired:**
+1.  **Edit `user_profile.py`**: Add your details (Experience, Education, etc.) so the LLM knows how to answer.
+2.  **Set API Key** in `.env`:
+    ```ini
+    OPENAI_API_KEY=sk-proj-...
+    # Or requesting local model:
+    # MODEL_PROVIDER=ollama
+    # OLLAMA_MODEL=qwen2.5-coder:7b
+    ```
+
+### 3. Login (Once)
+
+Run the login script to save your session cookies:
+
 ```bash
-# Re-run the setup to login again
 python setup_linkedin_browser.py
 ```
+*Login manually in the browser window that opens, then close it.*
 
----
+### 4. Run
 
-## 📚 Resources
+```bash
+python run_easy_apply.py
+```
 
-- [Playwright Documentation](https://playwright.dev/python/)
-- [Playwright Persistent Context](https://playwright.dev/python/docs/auth#reuse-authentication-state)
+## 🧠 Architecture
 
----
+The agent follows this loop for every job:
 
-Happy Automating! 🚀
+1.  **OBSERVE**: Scrapes the current form Step HTML.
+2.  **FILL**: LLM decides what to fill based on your `user_profile.py`.
+3.  **EXECUTE**: Playwright runs the JS to fill fields.
+4.  **VERIFY**: Checks for validation errors.
+    *   *If error*: Retry FILL with error context.
+    *   *If clean*: Proceed.
+5.  **NAVIGATE**: Clicks Next/Review/Submit.
+
+## 📁 Project Structure
+
+| File | Purpose |
+|------|---------|
+| `run_easy_apply.py` | Main entry point. Scrolls jobs, filters Easy Apply, starts agent. |
+| `easy_apply_agent.py` | The Brain. LangGraph agent logic (Nodes & Edges). |
+| `user_profile.py` | Configuration. Your "Resume" for the bot. |
+| `setup_linkedin_browser.py` | Utility to login and save session. |
+
+## ⚠️ Safety & Disclaimer
+
+This tool is for educational purposes. Use responsibily.
+- The bot uses **Playwright** with a real browser (not headless by default) to mimic human behavior.
+- We recommend running it in short bursts (e.g., 20 jobs/day) to avoid LinkedIn flags.
