@@ -1,0 +1,68 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:           #080812;
+  --surface:      rgba(255,255,255,0.04);
+  --surface-hover:rgba(255,255,255,0.07);
+  --border:       rgba(255,255,255,0.09);
+  --text:         #e2e8f0;
+  --text-muted:   #64748b;
+  --text-sub:     #94a3b8;
+  --accent:       #7c3aed;
+  --accent2:      #4f46e5;
+  --grad:         linear-gradient(135deg, #7c3aed, #4f46e5);
+  --grad-subtle:  linear-gradient(135deg, rgba(124,58,237,.15), rgba(79,70,229,.15));
+  --green:        #10b981;
+  --yellow:       #f59e0b;
+  --red:          #ef4444;
+  --radius:       14px;
+  --radius-sm:    8px;
+  --shadow:       0 8px 32px rgba(0,0,0,.45);
+  --font:         'Inter', system-ui, sans-serif;
+  --mono:         'JetBrains Mono', monospace;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 9px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.2); }
+
+/* Glass card */
+.glass {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: var(--radius);
+}
+
+/* Utility */
+.text-muted { color: var(--text-muted); }
+.text-sub   { color: var(--text-sub); }
+.mono       { font-family: var(--mono); }
+
+/* Markdown inside chat bubbles */
+.md-content p  { margin-bottom: .5rem; }
+.md-content ul { padding-left: 1.3rem; margin-bottom: .5rem; }
+.md-content li { margin-bottom: .2rem; }
+.md-content code {
+  font-family: var(--mono);
+  background: rgba(255,255,255,.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: .85em;
+}
+.md-content strong { color: #c4b5fd; }

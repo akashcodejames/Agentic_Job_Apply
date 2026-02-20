@@ -18,3 +18,19 @@ blob-report/
 
 # Logs
 *.log
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+
+# SQLite DB (contains personal data)
+*.db
+
+# Python bytecode / cache
+*.pyc
+*.pyo
+
+# SQLite WAL/SHM temp files
+*.db-shm
+*.db-wal

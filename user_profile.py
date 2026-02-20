@@ -5,6 +5,8 @@ Fixed fields are used directly for known form fields.
 The `about_me` text gives the LLM context to answer ANY question.
 """
 
+from __future__ import annotations   # fixes X | Y union syntax on Python 3.9
+
 USER_PROFILE = {
     # Fixed fields (always needed)
     "email": "akashyadavazm8@gmail.com",
@@ -226,13 +228,46 @@ END PROFILE CONTEXT
 }
 
 
-def get_profile_text():
-    """Format the user profile as a single text block for the LLM prompt."""
-    p = USER_PROFILE
-    return f"""Name: Akash Yadav
-Email: {p['email']}
-Phone: {p['country_code']} {p['phone']}
-Resume preference: {p['resume']}
+def _get_profile_from_db() -> dict | None:
+    """
+    Read the latest profile from the profile_portal SQLite DB.
+    Returns None if the DB doesn't exist yet (first run before portal is launched).
+    """
+    try:
+        from pathlib import Path
+        import sqlite3, json as _json
+        db_path = Path(__file__).parent / "profile_portal" / "backend" / "profile_portal.db"
+        if not db_path.exists():
+            return None
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT data FROM profile WHERE id=1").fetchone()
+        conn.close()
+        if row:
+            return _json.loads(row["data"])
+    except Exception as e:
+        print(f"[user_profile] Warning: could not read DB profile: {e}")
+    return None
 
-{p['about_me'].strip()}
-"""
+
+def get_profile_text() -> str:
+    """
+    Returns the user profile for the LLM system prompt.
+    Reads from SQLite DB (live, edited via portal) — feeds JSON directly.
+    Falls back to hardcoded USER_PROFILE if DB doesn't exist yet.
+    """
+    import json as _json
+    p = _get_profile_from_db()
+    if p:
+        return _json.dumps(p, indent=2)   # structured JSON is sufficient for the LLM
+
+    # Fallback: DB doesn't exist yet (portal never launched)
+    print("[user_profile] DB not found — using hardcoded profile.")
+    p = USER_PROFILE
+    return _json.dumps({
+        "name": "Akash Yadav",
+        "email": p['email'],
+        "phone": f"{p['country_code']} {p['phone']}",
+        "about": p['about_me'].strip(),
+        "resume": p['resume'],
+    }, indent=2)

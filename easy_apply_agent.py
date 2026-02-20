@@ -305,6 +305,7 @@ def fill_node(state: EasyApplyState) -> dict:
         # Use structured output — OpenAI enforces schema via function calling
         structured_llm = llm.with_structured_output(EasyApplyResponse)
         response: EasyApplyResponse = structured_llm.invoke(messages)
+        print(response)
         
         # Convert Pydantic objects to plain dicts for state storage
         actions = [a.model_dump() for a in response.actions]

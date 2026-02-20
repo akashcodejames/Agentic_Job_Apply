@@ -158,7 +158,7 @@ def human_scroll(page, direction: str = "down", steps: int = 3):
 
 def between_job_cooldown():
     """Randomized cooldown between job applications (3–12 seconds)."""
-    cooldown = random.uniform(3, 12)
+    cooldown = random.uniform(2, 5)
     print(f"   🕒 Anti-detection cooldown: {cooldown:.1f}s")
     time.sleep(cooldown)
 
