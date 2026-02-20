@@ -6,59 +6,97 @@ Includes a **Profile Intelligence Portal** (React + FastAPI) where you manage yo
 
 ---
 
-## Architecture
+## System Architecture
 
+```mermaid
+graph TB
+    subgraph Portal["🖥️ Profile Intelligence Portal"]
+        FE["React Frontend\n(Vite :5173)"]
+        BE["FastAPI Backend\n(:8000)"]
+        DB[("SQLite DB\nprofile + messages")]
+
+        FE -- "REST API" --> BE
+        BE -- "read/write" --> DB
+    end
+
+    subgraph Agent["🤖 Easy Apply Agent"]
+        RUN["run_easy_apply.py\n(Playwright orchestrator)"]
+        LG["easy_apply_agent.py\n(LangGraph state machine)"]
+        UP["user_profile.py\n(reads SQLite DB)"]
+        PW["Playwright\n(Chromium browser)"]
+        BD[("browser_data/\npersistent session")]
+
+        RUN --> LG
+        LG --> UP
+        UP -- "json.dumps(profile)" --> LG
+        RUN --> PW
+        PW -- "session" --> BD
+    end
+
+    FE -- "⚡ Start Auto Apply\n(subprocess)" --> RUN
+    DB -- "live profile JSON" --> UP
+    LG -- "JS fill actions" --> PW
+    PW -- "form HTML" --> LG
+
+    OAI["☁️ OpenAI\nGPT-4o-mini"]
+    LG -- "structured output" --> OAI
+    OAI -- "List[FillAction]" --> LG
+    BE -- "chat LLM calls" --> OAI
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Profile Intelligence Portal                   │
-│                                                                 │
-│  ┌──────────────────┐          ┌───────────────────────────┐   │
-│  │  React Frontend  │◄────────►│   FastAPI Backend (8000)  │   │
-│  │   (Vite :5173)   │  REST    │                           │   │
-│  │                  │          │  • GET/PUT /api/profile    │   │
-│  │  • ProfilePanel  │          │  • POST    /api/chat       │   │
-│  │  • ChatPanel     │          │  • POST    /api/apply/start│   │
-│  │  • Auto Apply Btn│          │  • GET     /api/apply/status│  │
-│  └──────────────────┘          │  • POST    /api/apply/stop │   │
-│                                └──────────┬────────────────┘   │
-│                                           │                     │
-│                                    ┌──────▼──────┐              │
-│                                    │  SQLite DB  │              │
-│                                    │ (profile +  │              │
-│                                    │  messages)  │              │
-│                                    └─────────────┘              │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │ subprocess
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Easy Apply Agent                            │
-│                                                                 │
-│   run_easy_apply.py                                             │
-│        │                                                        │
-│        ▼                                                        │
-│   ┌────────────┐    reads     ┌─────────────────────────────┐  │
-│   │ LangGraph  │◄────────────►│  user_profile.py            │  │
-│   │  Agent     │   profile    │  (reads SQLite DB → JSON)   │  │
-│   └─────┬──────┘              └─────────────────────────────┘  │
-│         │                                                       │
-│         ▼                                                       │
-│   ┌─────────────────────────────────────────────────────────┐  │
-│   │              easy_apply_agent.py  (LangGraph)           │  │
-│   │                                                         │  │
-│   │  ┌───────────┐    ┌──────────────┐    ┌─────────────┐  │  │
-│   │  │  extract  │───►│    fill      │───►│  navigate   │  │  │
-│   │  │  form_html│    │  (GPT-4o-mini│    │  next/submit│  │  │
-│   │  └───────────┘    │  + Pydantic) │    └─────────────┘  │  │
-│   │                   └──────────────┘                     │  │
-│   └──────────────────────────┬──────────────────────────────┘  │
-│                              │ JS execution                     │
-│                              ▼                                  │
-│                   ┌──────────────────┐                         │
-│                   │  Playwright      │                         │
-│                   │  (Chromium)      │◄── browser_data/        │
-│                   │  LinkedIn.com    │    (persistent session)  │
-│                   └──────────────────┘                         │
-└─────────────────────────────────────────────────────────────────┘
+
+---
+
+## Easy Apply Agent — LangGraph Workflow
+
+```mermaid
+flowchart TD
+    START([▶ Start Application]) --> OPEN["Open job listing\nclick Easy Apply button"]
+    OPEN --> EXTRACT["extract_form_html\nRead modal step HTML via Playwright"]
+    EXTRACT --> LLM["analyze_with_llm\nGPT-4o-mini → List[FillAction]\n(field + value + JS selector)"]
+    LLM --> EXEC["execute_js_actions\nPlaywright runs JS for each action\n(fill, select, radio, checkbox)"]
+    EXEC --> CHECK{"Nav button\ndetected?"}
+    CHECK -- "Next →" --> CLICK_NEXT["click_next\nPlaywright clicks Next"]
+    CHECK -- "Review →" --> CLICK_REVIEW["click_review\nPlaywright clicks Review"]
+    CHECK -- "Submit →" --> SUBMIT["submit_application\nPlaywright clicks Submit"]
+    CHECK -- "None found" --> RETRY{"Retry\ncount < 3?"}
+    CLICK_NEXT --> EXTRACT
+    CLICK_REVIEW --> CONFIRM["Confirm & Submit"]
+    CONFIRM --> SUBMIT
+    RETRY -- "Yes" --> LLM
+    RETRY -- "No (failed)" --> SKIP([⏭ Skip this job])
+    SUBMIT --> LOG["Log to console\nmark applied"]
+    LOG --> NEXT_JOB([🔁 Next job])
+
+    style START fill:#7c3aed,color:#fff
+    style SUBMIT fill:#10b981,color:#fff
+    style SKIP fill:#ef4444,color:#fff
+    style LLM fill:#4f46e5,color:#fff
+```
+
+---
+
+## Profile Portal — AI Chat Workflow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant React as React Frontend
+    participant API as FastAPI /api/chat
+    participant LLM as GPT-4o-mini
+    participant DB as SQLite DB
+
+    User->>React: Types message<br/>"change skills to add TensorFlow"
+    React->>API: POST /api/chat {message, session_id}
+    API->>DB: get_profile() → JSON
+    API->>DB: get_messages(session_id) → history
+    API->>LLM: SystemPrompt(profile JSON)<br/>+ conversation history<br/>+ user message
+    Note over LLM: with_structured_output(ChatReply)<br/>returns typed Pydantic model
+    LLM-->>API: ChatReply {<br/>  response: "Done! Added TensorFlow…",<br/>  should_update: true,<br/>  updates: [{key:"skills", value:[…]}],<br/>  delete_keys: []<br/>}
+    API->>DB: update_profile(updates_dict)
+    API->>DB: add_message(user + assistant)
+    API-->>React: {response, profile_updated, updated_fields, profile}
+    React->>React: Refresh ProfilePanel
+    React->>User: Shows reply + updated profile
 ```
 
 ---
@@ -70,28 +108,28 @@ linkedin-easy-apply-agent/
 │
 ├── easy_apply_agent.py          # LangGraph agent — form analysis + JS fill actions
 ├── run_easy_apply.py            # Entry point — Playwright orchestration loop
-├── user_profile.py              # Profile loader (reads from SQLite DB or fallback)
+├── user_profile.py              # Profile loader (reads SQLite DB → json.dumps)
 │
 ├── data/
 │   └── setup_linkedin_browser.py  # One-time LinkedIn login & session save
 │
 ├── browser_data/                # Persistent Playwright session (gitignored)
 │
-├── profile_portal/              # Web UI to manage profile + trigger apply
+├── profile_portal/
 │   ├── backend/                 # FastAPI app
-│   │   ├── main.py              # API routes (profile, chat, apply control)
-│   │   ├── chat_service.py      # LLM chat logic (LangGraph memory + Pydantic)
-│   │   ├── db.py                # SQLite helpers
+│   │   ├── main.py              # Routes: profile, chat, apply control (start/stop/status)
+│   │   ├── chat_service.py      # LLM chat (memory buffer + Pydantic structured output)
+│   │   ├── db.py                # SQLite helpers (profile CRUD + messages)
 │   │   └── requirements.txt
 │   └── frontend/                # React + Vite
 │       └── src/
-│           ├── App.jsx           # Layout + Auto Apply button
+│           ├── App.jsx                # Layout + ⚡ Auto Apply button
 │           ├── components/
-│           │   ├── ChatPanel.jsx      # AI chat interface
-│           │   └── ProfilePanel.jsx   # Profile viewer + delete custom keys
-│           └── api/client.js         # All API calls
+│           │   ├── ChatPanel.jsx      # AI chat interface (markdown rendering)
+│           │   └── ProfilePanel.jsx   # Profile viewer + delete custom keys (×)
+│           └── api/client.js          # fetch wrappers for all endpoints
 │
-├── requirements.txt             # Agent dependencies (playwright, langchain, etc.)
+├── requirements.txt             # Agent deps (playwright, langchain, openai, langgraph)
 ├── .env                         # API keys (gitignored)
 └── .gitignore
 ```
@@ -106,7 +144,7 @@ linkedin-easy-apply-agent/
 git clone https://github.com/akashcodejames/linkedin-easy-apply-agent
 cd linkedin-easy-apply-agent
 
-# Agent dependencies (Playwright, LangChain, etc.)
+# Agent dependencies
 pip install -r requirements.txt
 playwright install chromium
 
@@ -129,14 +167,13 @@ OPENAI_API_KEY=sk-...
 python data/setup_linkedin_browser.py
 ```
 
-This opens a Chromium window — log in manually. The session is saved to `browser_data/` so you never log in again.
+Opens Chromium — log in manually. Session saved to `browser_data/` permanently.
 
 ### 4. Start the Profile Portal
 
 ```bash
 # Terminal 1 — Backend
-cd profile_portal/backend
-source venv/bin/activate
+cd profile_portal/backend && source venv/bin/activate
 uvicorn main:app --reload --port 8000
 
 # Terminal 2 — Frontend
@@ -144,42 +181,16 @@ cd profile_portal/frontend
 npm install && npm run dev
 ```
 
-Open **http://localhost:5173** — use the AI chat to review and update your profile.
+Open **http://localhost:5173** and update your profile via AI chat.
 
 ### 5. Run the Apply Bot
 
-**Option A — From the Portal UI:**
-Click **⚡ Start Auto Apply** in the header.
+**From the Portal UI:** Click **⚡ Start Auto Apply** in the header.
 
-**Option B — From the terminal:**
+**From terminal:**
 ```bash
 python run_easy_apply.py
 ```
-
----
-
-## How It Works
-
-### Profile Portal (AI Chat)
-- Chat with an LLM to update your profile: *"change my expected salary to 8 LPA"*, *"add AWS certifications"*
-- Profile is stored in SQLite and **automatically used** by the apply bot on next run
-- Custom fields (certifications, languages, etc.) are created dynamically and shown in the UI
-
-### Easy Apply Agent (LangGraph)
-Each application runs through a state machine:
-
-```
-extract_form_html → analyze_with_llm → execute_js → navigate_next → [repeat or submit]
-```
-
-1. **Extract**: Playwright reads the current Easy Apply modal HTML
-2. **Analyze**: GPT-4o-mini returns structured `List[FillAction]` (field, value, JS)
-3. **Execute**: Playwright runs the JS to fill each field
-4. **Navigate**: Python clicks Next/Review/Submit based on button detection
-5. **Retry**: Up to 3 retries per step, 10 total before graceful exit
-
-### Pydantic Structured Output
-Uses `with_structured_output(FillAction)` — the LLM returns a typed list of actions, not free text. This makes form filling deterministic and debuggable.
 
 ---
 
@@ -190,15 +201,12 @@ Uses `with_structured_output(FillAction)` — the LLM returns a typed list of ac
 | Browser automation | Playwright (Chromium, persistent session) |
 | Agent orchestration | LangGraph state machine |
 | LLM | OpenAI GPT-4o-mini |
-| Structured output | Pydantic + `with_structured_output()` |
-| Profile storage | SQLite (via FastAPI backend) |
+| Structured output | Pydantic v2 + `with_structured_output()` |
+| Profile storage | SQLite (read via `json.dumps` into LLM prompt) |
 | Portal backend | FastAPI + uvicorn |
 | Portal frontend | React + Vite |
+| Chat memory | ConversationSummaryBuffer (auto-compresses) |
 
 ---
 
-## Notes
-
-- The agent **only applies to Easy Apply jobs** (blue button on LinkedIn)
-- Always test with a few applications manually before running at scale
-- `browser_data/` is gitignored — protect your LinkedIn session
+> **Note:** The bot only applies to jobs with the blue **Easy Apply** button. Always test with a few applications manually before running at scale.
