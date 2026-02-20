@@ -11,36 +11,36 @@ Includes a **Profile Intelligence Portal** (React + FastAPI) where you manage yo
 ```mermaid
 graph TB
     subgraph Portal["🖥️ Profile Intelligence Portal"]
-        FE["React Frontend\n(Vite :5173)"]
-        BE["FastAPI Backend\n(:8000)"]
-        DB[("SQLite DB\nprofile + messages")]
+        FE["React Frontend<br/>(Vite :5173)"]
+        BE["FastAPI Backend<br/>(:8000)"]
+        DB[("SQLite DB<br/>profile + messages")]
 
         FE -- "REST API" --> BE
-        BE -- "read/write" --> DB
+        BE -- "read / write" --> DB
     end
 
     subgraph Agent["🤖 Easy Apply Agent"]
-        RUN["run_easy_apply.py\n(Playwright orchestrator)"]
-        LG["easy_apply_agent.py\n(LangGraph state machine)"]
-        UP["user_profile.py\n(reads SQLite DB)"]
-        PW["Playwright\n(Chromium browser)"]
-        BD[("browser_data/\npersistent session")]
+        run_easy_apply["run_easy_apply.py<br/>Playwright orchestrator"]
+        easy_apply_agent["easy_apply_agent.py<br/>LangGraph state machine"]
+        user_profile["user_profile.py<br/>reads SQLite DB"]
+        playwright["Playwright<br/>Chromium browser"]
+        browser_data[("browser_data/<br/>persistent session")]
 
-        RUN --> LG
-        LG --> UP
-        UP -- "json.dumps(profile)" --> LG
-        RUN --> PW
-        PW -- "session" --> BD
+        run_easy_apply --> easy_apply_agent
+        easy_apply_agent --> user_profile
+        run_easy_apply --> playwright
+        playwright -- "session" --> browser_data
     end
 
-    FE -- "⚡ Start Auto Apply\n(subprocess)" --> RUN
-    DB -- "live profile JSON" --> UP
-    LG -- "JS fill actions" --> PW
-    PW -- "form HTML" --> LG
+    FE -- "⚡ Start Auto Apply<br/>subprocess" --> run_easy_apply
+    DB -- "live profile JSON" --> user_profile
+    user_profile -- "json.dumps" --> easy_apply_agent
+    easy_apply_agent -- "JS fill actions" --> playwright
+    playwright -- "form HTML" --> easy_apply_agent
 
-    OAI["☁️ OpenAI\nGPT-4o-mini"]
-    LG -- "structured output" --> OAI
-    OAI -- "List[FillAction]" --> LG
+    OAI["☁️ OpenAI<br/>GPT-4o-mini"]
+    easy_apply_agent -- "with_structured_output" --> OAI
+    OAI -- "List[FillAction]" --> easy_apply_agent
     BE -- "chat LLM calls" --> OAI
 ```
 
@@ -50,27 +50,38 @@ graph TB
 
 ```mermaid
 flowchart TD
-    START([▶ Start Application]) --> OPEN["Open job listing\nclick Easy Apply button"]
-    OPEN --> EXTRACT["extract_form_html\nRead modal step HTML via Playwright"]
-    EXTRACT --> LLM["analyze_with_llm\nGPT-4o-mini → List[FillAction]\n(field + value + JS selector)"]
-    LLM --> EXEC["execute_js_actions\nPlaywright runs JS for each action\n(fill, select, radio, checkbox)"]
-    EXEC --> CHECK{"Nav button\ndetected?"}
-    CHECK -- "Next →" --> CLICK_NEXT["click_next\nPlaywright clicks Next"]
-    CHECK -- "Review →" --> CLICK_REVIEW["click_review\nPlaywright clicks Review"]
-    CHECK -- "Submit →" --> SUBMIT["submit_application\nPlaywright clicks Submit"]
-    CHECK -- "None found" --> RETRY{"Retry\ncount < 3?"}
-    CLICK_NEXT --> EXTRACT
-    CLICK_REVIEW --> CONFIRM["Confirm & Submit"]
-    CONFIRM --> SUBMIT
-    RETRY -- "Yes" --> LLM
-    RETRY -- "No (failed)" --> SKIP([⏭ Skip this job])
-    SUBMIT --> LOG["Log to console\nmark applied"]
-    LOG --> NEXT_JOB([🔁 Next job])
+    start_job(["▶ Start Job"]) --> open_easy_apply
 
-    style START fill:#7c3aed,color:#fff
-    style SUBMIT fill:#10b981,color:#fff
-    style SKIP fill:#ef4444,color:#fff
-    style LLM fill:#4f46e5,color:#fff
+    open_easy_apply["open_easy_apply<br/>Click Easy Apply button"]
+    extract_form_html["extract_form_html<br/>Read modal step HTML"]
+    analyze_form["analyze_form<br/>GPT-4o-mini → List[FillAction]"]
+    execute_js_actions["execute_js_actions<br/>Playwright runs JS per field"]
+    check_navigation{"check_navigation<br/>Which button visible?"}
+    click_next["click_next<br/>→ Next step"]
+    click_review["click_review<br/>→ Review page"]
+    submit_application["submit_application<br/>→ Final Submit"]
+    retry_or_skip{"retry_count < 3?"}
+    log_success(["✅ Logged & next job"])
+    skip_job(["⏭ Skip job"])
+
+    open_easy_apply --> extract_form_html
+    extract_form_html --> analyze_form
+    analyze_form --> execute_js_actions
+    execute_js_actions --> check_navigation
+    check_navigation -- "Next" --> click_next
+    check_navigation -- "Review" --> click_review
+    check_navigation -- "Submit" --> submit_application
+    check_navigation -- "None found" --> retry_or_skip
+    click_next --> extract_form_html
+    click_review --> submit_application
+    submit_application --> log_success
+    retry_or_skip -- "Yes" --> analyze_form
+    retry_or_skip -- "No" --> skip_job
+
+    style start_job fill:#7c3aed,color:#fff
+    style submit_application fill:#10b981,color:#fff
+    style skip_job fill:#ef4444,color:#fff
+    style analyze_form fill:#4f46e5,color:#fff
 ```
 
 ---
@@ -82,21 +93,23 @@ sequenceDiagram
     actor User
     participant React as React Frontend
     participant API as FastAPI /api/chat
-    participant LLM as GPT-4o-mini
+    participant chat_service as chat_service.py
+    participant GPT as GPT-4o-mini
     participant DB as SQLite DB
 
-    User->>React: Types message<br/>"change skills to add TensorFlow"
-    React->>API: POST /api/chat {message, session_id}
-    API->>DB: get_profile() → JSON
-    API->>DB: get_messages(session_id) → history
-    API->>LLM: SystemPrompt(profile JSON)<br/>+ conversation history<br/>+ user message
-    Note over LLM: with_structured_output(ChatReply)<br/>returns typed Pydantic model
-    LLM-->>API: ChatReply {<br/>  response: "Done! Added TensorFlow…",<br/>  should_update: true,<br/>  updates: [{key:"skills", value:[…]}],<br/>  delete_keys: []<br/>}
-    API->>DB: update_profile(updates_dict)
-    API->>DB: add_message(user + assistant)
-    API-->>React: {response, profile_updated, updated_fields, profile}
-    React->>React: Refresh ProfilePanel
-    React->>User: Shows reply + updated profile
+    User->>React: "add TensorFlow to my skills"
+    React->>API: POST /api/chat
+    API->>chat_service: chat(session_id, message)
+    chat_service->>DB: get_profile()
+    chat_service->>DB: get_messages(session_id)
+    chat_service->>GPT: SystemPrompt + profile JSON<br/>+ conversation history
+    Note over GPT: with_structured_output(ChatReply)<br/>returns typed Pydantic model
+    GPT-->>chat_service: ChatReply {<br/>  response, should_update,<br/>  updates: [ProfileUpdateItem],<br/>  delete_keys: []<br/>}
+    chat_service->>DB: update_profile(updates_dict)
+    chat_service->>DB: add_message(user + assistant)
+    chat_service-->>API: response dict
+    API-->>React: {response, profile_updated, profile}
+    React->>User: Reply shown + ProfilePanel refreshed
 ```
 
 ---
@@ -106,9 +119,9 @@ sequenceDiagram
 ```
 linkedin-easy-apply-agent/
 │
-├── easy_apply_agent.py          # LangGraph agent — form analysis + JS fill actions
+├── easy_apply_agent.py          # LangGraph agent (form analysis + FillAction output)
 ├── run_easy_apply.py            # Entry point — Playwright orchestration loop
-├── user_profile.py              # Profile loader (reads SQLite DB → json.dumps)
+├── user_profile.py              # Profile loader (SQLite DB → json.dumps → LLM prompt)
 │
 ├── data/
 │   └── setup_linkedin_browser.py  # One-time LinkedIn login & session save
@@ -116,20 +129,20 @@ linkedin-easy-apply-agent/
 ├── browser_data/                # Persistent Playwright session (gitignored)
 │
 ├── profile_portal/
-│   ├── backend/                 # FastAPI app
-│   │   ├── main.py              # Routes: profile, chat, apply control (start/stop/status)
+│   ├── backend/
+│   │   ├── main.py              # Routes: profile, chat, apply start/stop/status
 │   │   ├── chat_service.py      # LLM chat (memory buffer + Pydantic structured output)
 │   │   ├── db.py                # SQLite helpers (profile CRUD + messages)
 │   │   └── requirements.txt
-│   └── frontend/                # React + Vite
+│   └── frontend/
 │       └── src/
 │           ├── App.jsx                # Layout + ⚡ Auto Apply button
 │           ├── components/
-│           │   ├── ChatPanel.jsx      # AI chat interface (markdown rendering)
-│           │   └── ProfilePanel.jsx   # Profile viewer + delete custom keys (×)
+│           │   ├── ChatPanel.jsx      # AI chat (markdown rendering)
+│           │   └── ProfilePanel.jsx   # Profile viewer + × delete custom keys
 │           └── api/client.js          # fetch wrappers for all endpoints
 │
-├── requirements.txt             # Agent deps (playwright, langchain, openai, langgraph)
+├── requirements.txt             # Agent deps (playwright, langchain, langgraph, openai)
 ├── .env                         # API keys (gitignored)
 └── .gitignore
 ```
@@ -188,6 +201,7 @@ Open **http://localhost:5173** and update your profile via AI chat.
 **From the Portal UI:** Click **⚡ Start Auto Apply** in the header.
 
 **From terminal:**
+
 ```bash
 python run_easy_apply.py
 ```
@@ -202,10 +216,10 @@ python run_easy_apply.py
 | Agent orchestration | LangGraph state machine |
 | LLM | OpenAI GPT-4o-mini |
 | Structured output | Pydantic v2 + `with_structured_output()` |
-| Profile storage | SQLite (read via `json.dumps` into LLM prompt) |
+| Profile storage | SQLite → `json.dumps` directly into LLM prompt |
 | Portal backend | FastAPI + uvicorn |
 | Portal frontend | React + Vite |
-| Chat memory | ConversationSummaryBuffer (auto-compresses) |
+| Chat memory | ConversationSummaryBuffer (auto-compresses old messages) |
 
 ---
 
