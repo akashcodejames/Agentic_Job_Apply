@@ -56,21 +56,24 @@ Click **⚡ Start Auto Apply** in the portal header (or run `python run_easy_app
 ### Step 3 — LangGraph applies, step by step
 
 ```mermaid
-flowchart LR
-    extract_form_html --> analyze_form
-    analyze_form --> execute_js_actions
-    execute_js_actions --> check_navigation
+flowchart TD
+    A(["▶ Open Easy Apply"]) --> B["extract_form_html<br/>Read modal step HTML"]
+    B --> C["analyze_form<br/>GPT-4o-mini → List[FillAction]"]
+    C --> D["execute_js_actions<br/>Playwright fills each field"]
+    D --> E{"check_navigation"}
+    E -- "Next →" --> B
+    E -- "Review →" --> F["submit_application"]
+    E -- "Submit →" --> F
+    E -- "Stuck" --> G{"retry < 3 ?"}
+    G -- "Yes" --> C
+    G -- "No" --> H(["⏭ skip_job"])
+    F --> I(["✅ Applied!"])
 
-    check_navigation -- "Next" --> extract_form_html
-    check_navigation -- "Review / Submit" --> submit_application
-    check_navigation -- "Stuck" --> retry_or_skip
-
-    retry_or_skip -- "retry" --> analyze_form
-    retry_or_skip -- "give up" --> skip_job
-
-    style submit_application fill:#10b981,color:#fff
-    style skip_job fill:#ef4444,color:#fff
-    style analyze_form fill:#4f46e5,color:#fff
+    style A fill:#7c3aed,color:#fff
+    style F fill:#10b981,color:#fff
+    style I fill:#10b981,color:#fff
+    style H fill:#ef4444,color:#fff
+    style C fill:#4f46e5,color:#fff
 ```
 
 ---
