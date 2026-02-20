@@ -17,6 +17,8 @@ Usage:
 from playwright.sync_api import sync_playwright
 import os
 import sys
+import random
+import time
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -112,14 +114,62 @@ def get_job_card_at_index(page, index):
         }})()
     """)
 
+# ──────────────────────────────────────────────
+# Anti-Detection Utilities
+# ──────────────────────────────────────────────
+
+def human_delay(min_ms: int = 800, max_ms: int = 2500):
+    """Wait a random human-like amount of time."""
+    delay = random.randint(min_ms, max_ms)
+    time.sleep(delay / 1000)
+
+
+def jitter_mouse(page, intensity: int = 3):
+    """
+    Move mouse in small random increments to mimic natural human movement.
+    intensity: number of micro-moves to make.
+    """
+    try:
+        viewport = page.viewport_size
+        if not viewport:
+            return
+        w, h = viewport["width"], viewport["height"]
+        # Start near center to avoid edge issues
+        x = random.randint(w // 4, 3 * w // 4)
+        y = random.randint(h // 4, 3 * h // 4)
+        for _ in range(intensity):
+            x += random.randint(-30, 30)
+            y += random.randint(-20, 20)
+            x = max(10, min(x, w - 10))
+            y = max(10, min(y, h - 10))
+            page.mouse.move(x, y)
+            time.sleep(random.uniform(0.05, 0.15))
+    except Exception:
+        pass  # Never crash the main loop for a mouse jitter
+
+
+def human_scroll(page, direction: str = "down", steps: int = 3):
+    """Scroll in small increments with random pauses, like a human."""
+    for _ in range(steps):
+        delta = random.randint(100, 350) * (1 if direction == "down" else -1)
+        page.mouse.wheel(0, delta)
+        time.sleep(random.uniform(0.2, 0.6))
+
+
+def between_job_cooldown():
+    """Randomized cooldown between job applications (3–12 seconds)."""
+    cooldown = random.uniform(3, 12)
+    print(f"   🕒 Anti-detection cooldown: {cooldown:.1f}s")
+    time.sleep(cooldown)
+
 
 # ──────────────────────────────────────────────
 # Main runner
 # ──────────────────────────────────────────────
 
 def main():
-    # Check for API key
-    if not os.environ.get("OPENAI_API_KEY"):
+    # Check for API key (only required if OpenAI mode)
+    if os.environ.get("MODEL_PROVIDER", "ollama").lower() == "openai" and not os.environ.get("OPENAI_API_KEY"):
         print("❌ OPENAI_API_KEY environment variable not set!")
         print("   Run: export OPENAI_API_KEY='your-key-here'")
         sys.exit(1)
@@ -144,6 +194,17 @@ def main():
             user_data_dir,
             headless=False,
             viewport={"width": 1280, "height": 720},
+            # Anti-fingerprinting: make the browser look more human
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            ),
+            locale="en-IN",
+            timezone_id="Asia/Kolkata",
+            args=[
+                "--disable-blink-features=AutomationControlled",
+            ],
         )
         
         page = context.new_page()
@@ -192,9 +253,10 @@ def main():
                 print(f"📋 Job [{i+1}/{total_jobs}]")
                 print(f"{'='*60}")
                 
-                # Scroll item into view (hydrate it)
+                # Scroll item into view and jitter mouse (looks human)
                 scroll_list_item_into_view(page, i)
-                page.wait_for_timeout(1000)
+                jitter_mouse(page, intensity=2)
+                human_delay(800, 1800)
                 
                 # Get job card ID
                 job_id = get_job_card_at_index(page, i)
@@ -222,8 +284,19 @@ def main():
                 print(f"   Title: {job_title}")
                 print(f"   ID:    {job_id}")
                 
+                # Click the job card (with small pre-click hover)
+                try:
+                    box = card.bounding_box()
+                    if box:
+                        page.mouse.move(
+                            box["x"] + box["width"] / 2,
+                            box["y"] + box["height"] / 2,
+                        )
+                        human_delay(200, 500)
+                except Exception:
+                    pass
                 card.click()
-                page.wait_for_timeout(3000)  # Wait for details panel
+                human_delay(2500, 4500)  # Wait for details panel
                 
                 # --- Check for Easy Apply button ---
                 easy_apply_btn = page.locator("#jobs-apply-button-id").first
@@ -253,7 +326,7 @@ def main():
                 print("   🔘 Clicking Easy Apply...")
                 current_page_count = len(context.pages)
                 easy_apply_btn.click()
-                page.wait_for_timeout(2000)
+                human_delay(1500, 3000)
                 
                 # --- Check for redirect (new tab) ---
                 if len(context.pages) > current_page_count:
@@ -284,8 +357,8 @@ def main():
                 else:
                     results["failed"].append(f"{job_title} ({result})")
                 
-                # Small cooldown between jobs
-                page.wait_for_timeout(2000)
+                # Anti-detection: randomized cooldown between jobs
+                between_job_cooldown()
             
         except KeyboardInterrupt:
             print("\n\n⚠️  Interrupted by user (Ctrl+C)")

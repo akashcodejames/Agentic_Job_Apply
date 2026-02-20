@@ -14,13 +14,15 @@ Retry limits:
 
 import json
 import os
-from typing import Any, TypedDict
+from typing import Any, TypedDict, List
+from pydantic import BaseModel, Field
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from user_profile import get_profile_text
@@ -91,7 +93,21 @@ Do NOT wrap in ```json``` code fences.
       "type": "fill",
       "field_name": "Human-readable field name",
       "value": "The value being filled",
-      "js": "(() => { /* JavaScript to fill this one field */ })()"
+      "js": "(() => { /* JavaScript to fill this one field */ })()",
+      "selector": ""
+    }
+  ]
+}
+
+For TYPEAHEAD fields use type: "typeahead" and provide the CSS selector instead of JS:
+{
+  "actions": [
+    {
+      "type": "typeahead",
+      "field_name": "Location (city)",
+      "value": "Ghaziabad, Uttar Pradesh, India",
+      "js": "",
+      "selector": "#ember123"
     }
   ]
 }
@@ -130,6 +146,23 @@ If all fields are already filled correctly, return:
 --- Resume selection (radio card, already selected) ---
 Skip if the most recent resume is already selected.
 
+--- Typeahead / Autocomplete fields (Location, City, etc.) ---
+IMPORTANT: Some fields use a typeahead/autocomplete widget.
+Signs of a typeahead field:
+- Labels containing: city, location, address, country, region
+- Input has autocomplete-related aria attributes
+- Setting .value directly causes "Please enter a valid answer" errors
+
+For these, use type: "typeahead" with the input's actual CSS selector:
+{
+  "type": "typeahead",
+  "field_name": "Location (city)",
+  "value": "Ghaziabad, Uttar Pradesh, India",
+  "js": "",
+  "selector": "#ember456"
+}
+Playwright will handle the typing and dropdown selection automatically.
+
 ═══════════════════════════════════════════
  USER PROFILE
 ═══════════════════════════════════════════
@@ -152,12 +185,48 @@ class EasyApplyState(TypedDict):
     job_title: str              # For logging
 
 
+
+# ──────────────────────────────────────────────
+# Pydantic Schema (Structured Output)
+# ──────────────────────────────────────────────
+
+class FillAction(BaseModel):
+    """One field fill action with its JavaScript."""
+    type: str = Field(description="Action type: 'fill' for regular JS injection, 'typeahead' for autocomplete/location fields")
+    field_name: str = Field(description="Human-readable name of the form field")
+    value: str = Field(description="The value to fill or search for")
+    js: str = Field(default="", description="Executable JavaScript (IIFE) to fill this field. Leave empty for typeahead actions.")
+    selector: str = Field(default="", description="CSS selector for the input element. Required for typeahead actions.")
+
+
+class EasyApplyResponse(BaseModel):
+    """Structured LLM response: list of fill actions for the current form step."""
+    actions: List[FillAction] = Field(
+        default_factory=list,
+        description="List of fill actions. Empty list if all fields already filled."
+    )
+
+
 # ──────────────────────────────────────────────
 # LLM
 # ──────────────────────────────────────────────
 
 def get_llm():
-    """Create the LLM instance (OpenAI)."""
+    """Create the LLM instance. Defaults to OpenAI (supports structured output)."""
+    provider = os.environ.get("MODEL_PROVIDER", "openai").lower()
+
+    if provider == "ollama":
+        # NOTE: Ollama/DeepSeek doesn't reliably support .with_structured_output()
+        model_name = os.environ.get("OLLAMA_MODEL", "deepseek-coder-v2")
+        print(f"   🤖 Using Local Ollama Model: {model_name} (no structured output)")
+        return ChatOllama(
+            model=model_name,
+            temperature=0,
+            base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+        )
+
+    # Default: OpenAI — supports structured output via function calling
+    print(f"   🤖 Using OpenAI: gpt-4o-mini (structured output enabled)")
     return ChatOpenAI(
         model="gpt-4o-mini",
         temperature=0,
@@ -215,7 +284,7 @@ def fill_node(state: EasyApplyState) -> dict:
     
     # Build user message
     user_msg = "Here is the current Easy Apply form step HTML.\n"
-    user_msg += "Analyze all fields, fill any that are empty, and return the JSON actions.\n\n"
+    user_msg += "Analyze all fields and return fill actions for any empty/unfilled fields.\n\n"
     
     if errors:
         user_msg += "⚠️ PREVIOUS ATTEMPT HAD ERRORS:\n"
@@ -229,22 +298,16 @@ def fill_node(state: EasyApplyState) -> dict:
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=user_msg),
     ]
-    print(messages)
-    exit()
+
     try:
-        print("   🤖 Asking LLM to analyze form...")
-        response = llm.invoke(messages)
-        raw = response.content.strip()
+        print("   🤖 Asking LLM to analyze form (Pydantic structured output)...")
         
-        # Clean up response (remove markdown fences if present)
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1]  # Remove first line
-            if raw.endswith("```"):
-                raw = raw[:-3]
-            raw = raw.strip()
+        # Use structured output — OpenAI enforces schema via function calling
+        structured_llm = llm.with_structured_output(EasyApplyResponse)
+        response: EasyApplyResponse = structured_llm.invoke(messages)
         
-        data = json.loads(raw)
-        actions = data.get("actions", [])
+        # Convert Pydantic objects to plain dicts for state storage
+        actions = [a.model_dump() for a in response.actions]
         
         print(f"   🤖 LLM returned {len(actions)} fill action(s)")
         for a in actions:
@@ -252,14 +315,104 @@ def fill_node(state: EasyApplyState) -> dict:
         
         return {"actions": actions, "errors": []}
     
-    except json.JSONDecodeError as e:
-        print(f"   ❌ LLM returned invalid JSON: {e}")
-        print(f"   Raw response: {raw[:200]}...")
+    except Exception as e:
+        print(f"   ❌ LLM/Pydantic error: {e}")
         return {"actions": [], "status": "ERROR"}
+
+
+# ──────────────────────────────────────────────
+# TypeAhead Helper
+# ──────────────────────────────────────────────
+
+def handle_typeahead(page, selector: str, value: str) -> bool:
+    """
+    Fill a LinkedIn typeahead/autocomplete field using Playwright keyboard simulation.
+    
+    Flow:
+      1. Click the field
+      2. Clear any existing text
+      3. Type the search term character by character (triggers dropdown)
+      4. Wait for dropdown to appear
+      5. Click the first matching option
+    
+    Returns True if successful, False if dropdown never appeared.
+    """
+    import time
+    
+    # Common LinkedIn typeahead dropdown selectors
+    DROPDOWN_SELECTORS = [
+        ".basic-typeahead__triggered-content li",
+        "[data-test-autocomplete-filter] li",
+        ".artdeco-typeahead__results-list li",
+        "ul[role='listbox'] li",
+        ".typeahead-results li",
+    ]
+    
+    try:
+        field = page.locator(selector).first
+        
+        if field.count() == 0:
+            print(f"      ⚠️ TypeAhead: selector '{selector}' not found")
+            return False
+        
+        # 1. Click to focus
+        field.click()
+        time.sleep(0.3)
+        
+        # 2. Clear existing text
+        field.fill("")
+        
+        # 3. Use short search term (first 4-6 chars usually enough for dropdown)
+        search_term = value.split(",")[0]  # e.g. "Ghaziabad" from full city string
+        
+        # Type character by character with human-like delays
+        for char in search_term:
+            field.type(char)
+            time.sleep(0.08 + 0.04 * (len(search_term) % 3))  # ~80-120ms per key
+        
+        # 4. Wait for dropdown to appear
+        page.wait_for_timeout(1800)
+        
+        # 5. Try each dropdown selector
+        for dropdown_sel in DROPDOWN_SELECTORS:
+            items = page.locator(dropdown_sel)
+            if items.count() > 0:
+                # Try to find the best match (contains the city name)
+                city = search_term.lower()
+                matched = False
+                for idx in range(min(items.count(), 5)):
+                    try:
+                        item_text = items.nth(idx).inner_text().strip().lower()
+                        if city in item_text:
+                            items.nth(idx).click()
+                            print(f"      ✅ TypeAhead: clicked '{item_text}'")
+                            matched = True
+                            break
+                    except:
+                        pass
+                
+                if not matched:
+                    # Fallback: click the first option
+                    items.first.click()
+                    try:
+                        print(f"      ✅ TypeAhead: clicked first option (fallback)")
+                    except:
+                        pass
+                
+                page.wait_for_timeout(500)
+                return True
+        
+        # No dropdown found — try pressing Arrow Down + Enter as last resort
+        print("      ⚠️ TypeAhead: no dropdown found, trying ArrowDown+Enter")
+        field.press("ArrowDown")
+        page.wait_for_timeout(500)
+        field.press("Enter")
+        page.wait_for_timeout(500)
+        return False
     
     except Exception as e:
-        print(f"   ❌ LLM error: {e}")
-        return {"actions": [], "status": "ERROR"}
+        print(f"      ❌ TypeAhead error: {e}")
+        return False
 
 
 # ──────────────────────────────────────────────
@@ -280,8 +433,20 @@ def execute_node(state: EasyApplyState) -> dict:
     for i, action in enumerate(actions):
         field_name = action.get("field_name", f"Field {i+1}")
         value = action.get("value", "?")
-        js_code = action.get("js", "")
+        action_type = action.get("type", "fill")
         
+        # ── TypeAhead field (Location, City, etc.) ──
+        if action_type == "typeahead":
+            selector = action.get("selector", "")
+            if not selector:
+                print(f"      ⚠️ {field_name}: typeahead action missing selector, skipping")
+                continue
+            print(f"      🔍 TypeAhead: {field_name} = {value}")
+            handle_typeahead(page, selector, value)
+            continue
+        
+        # ── Regular JS fill ──
+        js_code = action.get("js", "")
         if not js_code:
             print(f"      ⏭️  {field_name}: No JS code, skipping")
             continue
@@ -536,6 +701,64 @@ def build_easy_apply_graph():
 
 
 # ──────────────────────────────────────────────
+# Graceful Modal Dismiss
+# ──────────────────────────────────────────────
+
+DISCARD_BTN   = 'button[data-control-name="discard_application_confirm_btn"]'
+SAVE_DIALOG   = 'div[data-test-modal][role="alertdialog"]'
+
+def dismiss_modal_gracefully(page):
+    """
+    Close the Easy Apply modal *and* handle the 'Save this application?' dialog.
+    
+    LinkedIn shows an alertdialog with Save/Discard when the modal is
+    closed while a form is partially filled.  A bare Escape just opens
+    that dialog and leaves it blocking the entire UI.
+
+    This function:
+      1. If the Save dialog is already open  → click Discard immediately.
+      2. Otherwise, press Escape (may or may not trigger the dialog).
+      3. Wait briefly, then check again → click Discard if dialog appeared.
+      4. Final safety pass — dismiss the dialog selector one more time.
+    """
+    def _click_discard():
+        btn = page.locator(DISCARD_BTN)
+        if btn.count() > 0:
+            try:
+                if btn.first.is_visible():
+                    btn.first.click()
+                    print("   🗑️  Save dialog — clicked Discard")
+                    page.wait_for_timeout(800)
+                    return True
+            except Exception:
+                pass
+        return False
+
+    try:
+        # Step 1: dialog already open?
+        if page.locator(SAVE_DIALOG).count() > 0:
+            _click_discard()
+            return
+
+        # Step 2: press Escape to close modal (may trigger dialog)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(1000)
+
+        # Step 3: dialog appeared after Escape?
+        _click_discard()
+
+        # Step 4: final safety — press Escape one more time if anything left
+        if page.locator(SAVE_DIALOG).count() > 0 or \
+           page.locator("div.jobs-easy-apply-modal").count() > 0:
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(500)
+            _click_discard()
+
+    except Exception as e:
+        print(f"   ⚠️ dismiss_modal error (non-critical): {e}")
+
+
+# ──────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────
 
@@ -567,29 +790,21 @@ def run_easy_apply(page, job_title: str = "Unknown") -> str:
     }
     
     try:
-        final_state = graph.invoke(initial_state)
+        final_state = graph.invoke(initial_state, {"recursion_limit": 150})
         status = final_state.get("status", "ERROR")
         
         if status == "APPLIED":
             print(f"   ✅ Successfully applied to: {job_title}")
         else:
             print(f"   ⚠️  Finished with status: {status}")
-            # Close modal if still open
-            try:
-                page.keyboard.press("Escape")
-                page.wait_for_timeout(1000)
-            except:
-                pass
+            # Gracefully close modal and handle Save/Discard dialog
+            dismiss_modal_gracefully(page)
             status = "SKIPPED"
         
         return status
         
     except Exception as e:
         print(f"   ❌ Agent error: {e}")
-        # Graceful exit — close modal
-        try:
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(1000)
-        except:
-            pass
+        # Gracefully close modal and handle Save/Discard dialog
+        dismiss_modal_gracefully(page)
         return "ERROR"
