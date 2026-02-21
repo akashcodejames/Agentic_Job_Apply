@@ -86,22 +86,33 @@ def _get_profile_from_db() -> dict | None:
     return None
 
 
+# Module-level cache — populated once on first call, reused forever after.
+_profile_cache: str | None = None
+
+
 def get_profile_text() -> str:
     """
-    Returns the user profile as JSON for the LLM system prompt.
+    Returns the user profile as a JSON string for the LLM system prompt.
 
+    Fetched only ONCE per process run (cached in _profile_cache).
     Priority:
       1. Live profile from SQLite DB (set up via the Profile Portal chat).
       2. EXAMPLE_PROFILE fallback — edit it in this file with your own details.
     """
+    global _profile_cache
     import json as _json
+
+    if _profile_cache is not None:
+        return _profile_cache  # already fetched this run — skip DB/file read
 
     p = _get_profile_from_db()
     if p:
-        print("[user_profile] ✓ Using live profile from SQLite DB.")
-        return _json.dumps(p, indent=2)
+        print("[user_profile] ✓ Profile loaded from SQLite DB (cached for this run).")
+        _profile_cache = _json.dumps(p, indent=2)
+    else:
+        print("[user_profile] DB not found — using EXAMPLE_PROFILE fallback (cached for this run). "
+              "Run the Profile Portal and update your details via chat for best results.")
+        _profile_cache = _json.dumps(EXAMPLE_PROFILE, indent=2)
 
-    # Fallback: DB doesn't exist yet — use the example profile above
-    print("[user_profile] DB not found — using EXAMPLE_PROFILE fallback. "
-          "Run the Profile Portal and update your details via chat for best results.")
-    return _json.dumps(EXAMPLE_PROFILE, indent=2)
+    return _profile_cache
+
