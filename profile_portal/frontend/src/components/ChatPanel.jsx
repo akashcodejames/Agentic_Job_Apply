@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Send, Trash2, Bot, User, Loader2, Brain } from 'lucide-react'
 import { sendMessage, fetchHistory, clearHistory } from '../api/client.js'
@@ -77,11 +77,18 @@ export default function ChatPanel({ sessionId, onProfileUpdated }) {
 
     /* Load conversation history on mount */
     useEffect(() => {
-        fetchHistory(sessionId).then(data => {
-            setMessages(data.messages || [])
-            setSummary(data.summary || '')
-            setHistLoaded(true)
-        }).catch(() => setHistLoaded(true))
+        const load = async () => {
+            try {
+                const data = await fetchHistory(sessionId)
+                setMessages(data.messages || [])
+                setSummary(data.summary || '')
+            } catch {
+                // ignore — histLoaded still flips so the welcome screen shows
+            } finally {
+                setHistLoaded(true)
+            }
+        }
+        load()
     }, [sessionId])
 
     /* Scroll to bottom on new message */
@@ -89,7 +96,7 @@ export default function ChatPanel({ sessionId, onProfileUpdated }) {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [messages, loading])
 
-    const handleSend = useCallback(async () => {
+    const handleSend = async () => {
         const text = input.trim()
         if (!text || loading) return
 
@@ -120,7 +127,7 @@ export default function ChatPanel({ sessionId, onProfileUpdated }) {
         } finally {
             setLoading(false)
         }
-    }, [input, loading, sessionId, onProfileUpdated])
+    }
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
