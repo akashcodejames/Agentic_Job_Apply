@@ -83,15 +83,32 @@ The AI only writes to the database when you explicitly ask it to update somethin
 
 ### Option B — From the Terminal *(headless / direct)*
 
+> [!IMPORTANT]
+> When using Option B **without** the Profile Portal, the bot has no DB to read from.
+> Before running, open `user_profile.py` and fill in `EXAMPLE_PROFILE` at the top with **your own details**:
+> ```python
+> EXAMPLE_PROFILE = {
+>     "name":   "Your Name",
+>     "email":  "you@example.com",
+>     "skills": ["Python", "FastAPI", ...],
+>     "expected_ctc": 900000,
+>     # ... all other fields
+> }
+> ```
+> The bot reads this file at startup and uses it as context for every form field it fills.
+
 ```bash
-# Make sure you've logged in to LinkedIn first:
+# 1. Edit your profile first (only needed once):
+#    open user_profile.py → edit EXAMPLE_PROFILE at the top
+
+# 2. Login to LinkedIn (one time):
 python data/setup_linkedin_browser.py
 
-# Then run the bot directly:
+# 3. Run the bot:
 python run_easy_apply.py
 ```
 
-The bot will open a Chromium window, navigate to LinkedIn, search for Easy Apply jobs, and start applying using your profile.
+The bot opens Chromium, navigates to LinkedIn, finds Easy Apply jobs, and fills every form using your profile context.
 
 ---
 
