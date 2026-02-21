@@ -42,16 +42,71 @@ graph LR
 
 ---
 
-## How It Works
+## What You Can Do in the Portal
 
-### Step 1 — Set Up Your Profile
-Chat with the AI in the portal to fill out your profile:
-> *"My expected CTC is 8 LPA, notice period is 30 days, I know Python and AWS"*
+Open **http://localhost:5173** after starting both servers. The portal has two panels:
 
-The LLM detects what to save and updates the SQLite DB instantly.
+### 💬 Left — AI Chat (Profile Assistant)
+Talk to the AI to build and update your profile:
 
-### Step 2 — Launch the Bot
-Click **⚡ Start Auto Apply** in the portal header (or run `python run_easy_apply.py`). The bot opens LinkedIn in a Chromium window and starts applying.
+| What to say | What happens |
+|---|---|
+| `"My name is Jane, email is jane@example.com"` | Basic info saved to DB |
+| `"I know Python, FastAPI, Docker and AWS"` | Skills list updated |
+| `"Expected CTC 10 LPA, notice period 30 days"` | Job preferences saved |
+| `"Add a certification: AWS Solutions Architect"` | Custom `certifications` key created |
+| `"Remove the certifications field"` | Key deleted from profile |
+| `"What should I add to get more interviews?"` | AI gives advice (no DB change) |
+
+The AI only writes to the database when you explicitly ask it to update something. You can ask questions freely — they won't modify your profile.
+
+### 👤 Right — Profile Panel
+- Live view of everything stored in your profile
+- Custom fields (created via chat) appear under **Additional Info** with a **×** delete button
+- **Refresh** button (↻) to reload from DB
+- **LinkedIn / GitHub / Portfolio** quick links if set
+
+---
+
+## Running Auto Apply
+
+### Option A — From the Portal UI *(recommended)*
+
+1. Make sure both servers are running
+2. Go to **http://localhost:5173**
+3. Set up your profile via chat first
+4. Click **⚡ Start Auto Apply** in the top-right header
+5. The button turns red and shows a live **PID** — the bot is running
+6. Click **■ Stop Auto Apply** to kill it at any time
+
+> The portal polls the bot status every 5 seconds. If the bot crashes, the button resets to idle automatically.
+
+### Option B — From the Terminal *(headless / direct)*
+
+```bash
+# Make sure you've logged in to LinkedIn first:
+python data/setup_linkedin_browser.py
+
+# Then run the bot directly:
+python run_easy_apply.py
+```
+
+The bot will open a Chromium window, navigate to LinkedIn, search for Easy Apply jobs, and start applying using your profile.
+
+---
+
+## Profile Context Priority
+
+`user_profile.py` feeds the agent its context. It checks in this order:
+
+```
+1. SQLite DB  →  profile_portal/backend/profile_portal.db  (live, edited via portal)
+2. EXAMPLE_PROFILE  →  user_profile.py  (fallback — edit with your details)
+```
+
+**If running for the first time without the portal**, open `user_profile.py` and edit `EXAMPLE_PROFILE` at the top with your own details — name, email, skills, CTC, etc. The bot will use this JSON as context for all form fields.
+
+---
 
 ### Step 3 — LangGraph applies, step by step
 
