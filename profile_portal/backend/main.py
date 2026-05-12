@@ -152,7 +152,7 @@ def _find_agent_python() -> str:
     """
     import shutil
     # Check for a virtualenv at the project root (common for the agent code)
-    for venv_name in ('venv', '.venv', 'env', '.env'):
+    for venv_name in ('ven', 'venv', '.venv', 'env', '.env'):
         candidate = _PROJECT_ROOT / venv_name / 'bin' / 'python'
         if candidate.exists():
             return str(candidate)
@@ -189,10 +189,16 @@ def start_apply():
     import time
     time.sleep(1)
     if _apply_proc.poll() is not None:
-        error_output = _apply_proc.stdout.read()
+        error_output = _apply_proc.stdout.read()   # read ALL output, no limit
         _apply_proc = None
+        # Print full traceback to the uvicorn terminal so you can see it there too
+        print("\n" + "="*60)
+        print("AGENT CRASHED -- full output:")
+        print("="*60)
+        print(error_output)
+        print("="*60 + "\n")
         raise HTTPException(500,
-            f"Agent crashed on startup (Python: {python_exe}):\n{error_output[:800]}"
+            f"Agent crashed on startup (Python: {python_exe}):\n{error_output}"
         )
 
     return {

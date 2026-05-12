@@ -169,12 +169,12 @@ def between_job_cooldown():
 
 def main():
     # Check for API key (only required if OpenAI mode)
-    if os.environ.get("MODEL_PROVIDER", "ollama").lower() == "openai" and not os.environ.get("OPENAI_API_KEY"):
+    if os.environ.get("MODEL_PROVIDER", "openai").lower() == "openai" and not os.environ.get("OPENAI_API_KEY"):
         print("❌ OPENAI_API_KEY environment variable not set!")
         print("   Run: export OPENAI_API_KEY='your-key-here'")
         sys.exit(1)
     
-    user_data_dir = os.path.join(os.path.dirname(__file__), "browser_data")
+    user_data_dir = os.path.join(os.path.dirname(__file__), "data", "browser_data")
     
     if not os.path.exists(user_data_dir):
         print("⚠️  Browser profile not found!")
@@ -298,27 +298,40 @@ def main():
                 card.click()
                 human_delay(2500, 4500)  # Wait for details panel
                 
-                # --- Check for Easy Apply button ---
-                easy_apply_btn = page.locator("#jobs-apply-button-id").first
+                # --- Check for LinkedIn Apply button ---
+                # LinkedIn 2025: button text is now "Apply" (not "Easy Apply")
+                # The ID and data attribute are most reliable selectors.
+                easy_apply_btn = page.locator(
+                    "#jobs-apply-button-id, "
+                    "button[data-live-test-job-apply-button], "
+                    "button.jobs-apply-button"
+                ).first
                 
                 if not easy_apply_btn.is_visible():
-                    # Try fallback selector
-                    easy_apply_btn = page.locator("button.jobs-apply-button").first
-                
-                if not easy_apply_btn.is_visible():
-                    print("   ⏭️  No Easy Apply button — skipping")
-                    results["skipped"].append(f"{job_title} (no Easy Apply)")
+                    print("   ⏭️  No apply button found — skipping")
+                    results["skipped"].append(f"{job_title} (no apply button)")
                     continue
                 
-                # Check button text — must say "Easy Apply", not just "Apply"
+                # Check aria-label: external "Apply" buttons have no LinkedIn branding.
+                # LinkedIn Easy Apply aria-label: "LinkedIn Apply to {title} at {company}"
+                # External apply aria-label may be absent or just say "Apply"
+                btn_aria = ""
                 btn_text = ""
                 try:
+                    btn_aria = easy_apply_btn.get_attribute("aria-label") or ""
                     btn_text = easy_apply_btn.inner_text().strip()
                 except:
                     pass
                 
-                if "Easy Apply" not in btn_text and "easy apply" not in btn_text.lower():
-                    print(f"   ⏭️  Button says '{btn_text}' (not Easy Apply) — skipping")
+                is_linkedin_apply = (
+                    "linkedin" in btn_aria.lower()          # New: aria-label has "LinkedIn Apply..."
+                    or "easy apply" in btn_aria.lower()     # Old format (still on some jobs)
+                    or "easy apply" in btn_text.lower()     # Old button text format
+                    or bool(easy_apply_btn.get_attribute("data-live-test-job-apply-button") is not None)
+                )
+                
+                if not is_linkedin_apply:
+                    print(f"   ⏭️  External apply button ('{btn_text}') — skipping")
                     results["skipped"].append(f"{job_title} (external apply)")
                     continue
                 

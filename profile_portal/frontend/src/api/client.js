@@ -22,7 +22,14 @@ export async function sendMessage(message, sessionId = 'default') {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, session_id: sessionId }),
   })
-  if (!res.ok) throw new Error('Chat request failed')
+  if (!res.ok) {
+    let detail = `Chat request failed (${res.status})`
+    try {
+      const err = await res.json()
+      if (err.detail) detail = err.detail
+    } catch {}
+    throw new Error(detail)
+  }
   return res.json()
 }
 
@@ -51,6 +58,14 @@ export async function deleteProfileKey(keyName) {
 
 export async function startApply() {
   const res = await fetch(`${BASE}/apply/start`, { method: 'POST' })
+  if (!res.ok) {
+    let detail = `Failed to start auto apply (${res.status})`
+    try {
+      const err = await res.json()
+      if (err.detail) detail = err.detail
+    } catch {}
+    throw new Error(detail)
+  }
   return res.json()
 }
 

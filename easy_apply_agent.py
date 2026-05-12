@@ -22,7 +22,6 @@ load_dotenv()
 
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
-from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from user_profile import get_profile_text
@@ -217,6 +216,8 @@ def get_llm():
 
     if provider == "ollama":
         # NOTE: Ollama/DeepSeek doesn't reliably support .with_structured_output()
+        # Lazy import — only needed when MODEL_PROVIDER=ollama
+        from langchain_ollama import ChatOllama  # noqa: PLC0415
         model_name = os.environ.get("OLLAMA_MODEL", "deepseek-coder-v2")
         print(f"   🤖 Using Local Ollama Model: {model_name} (no structured output)")
         return ChatOllama(

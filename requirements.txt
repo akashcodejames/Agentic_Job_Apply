@@ -1,4 +1,30 @@
-playwright==1.58.0
-langgraph>=0.4.0
-langchain>=0.3.0
-langchain-openai>=0.3.0
+# ─── Core Agent Dependencies ────────────────────────────────────────────────
+playwright
+python-dotenv
+
+# LangChain / LangGraph
+langchain-core
+langchain-openai
+langgraph
+langgraph-checkpoint
+langgraph-prebuilt
+
+# OpenAI
+openai
+tiktoken
+
+# ─── Backend (FastAPI) ──────────────────────────────────────────────────────
+fastapi
+uvicorn
+python-multipart
+pydantic
+pydantic-settings
+starlette
+
+# ─── HTTP / Networking ───────────────────────────────────────────────────────
+httpx
+requests
+
+# ─── Utilities ───────────────────────────────────────────────────────────────
+beautifulsoup4
+aiosqlite
